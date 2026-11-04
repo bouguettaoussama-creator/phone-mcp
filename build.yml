@@ -1,0 +1,41 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract project
+        run: mkdir proj && tar -xzf project.tar.gz -C proj
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Fetch ngrok (arm64) as native lib
+        working-directory: proj
+        run: |
+          curl -fsSL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz -o ngrok.tgz
+          tar -xzf ngrok.tgz ngrok
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          mv ngrok app/src/main/jniLibs/arm64-v8a/libngrok.so
+      - name: Build
+        working-directory: proj
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
+      - name: Show errors only
+        if: failure()
+        working-directory: proj
+        run: |
+          grep -n -E "^e: |error:|What went wrong|Caused by" -A4 build.log | head -80
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phone-mcp-debug
+          path: proj/app/build/outputs/apk/debug/*.apk
